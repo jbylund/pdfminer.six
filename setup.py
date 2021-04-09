@@ -13,6 +13,7 @@ setup(
     packages=['pdfminer'],
     package_data={'pdfminer': ['cmap/*.pickle.gz']},
     install_requires=[
+        'cachetools',
         'chardet ; python_version > "3.0"',
         'cryptography',
     ],

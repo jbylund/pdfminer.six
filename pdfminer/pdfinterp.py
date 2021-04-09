@@ -1,6 +1,7 @@
 import re
 import logging
 from io import BytesIO
+from cachetools import LRUCache
 from .cmapdb import CMapDB
 from .cmapdb import CMap
 from .psparser import PSTypeError
@@ -141,9 +142,10 @@ class PDFResourceManager:
     allocated multiple times.
     """
 
+    _cached_fonts = LRUCache(maxsize=500)
+
     def __init__(self, caching=True):
         self.caching = caching
-        self._cached_fonts = {}
         return
 
     def get_procset(self, procs):
@@ -165,9 +167,10 @@ class PDFResourceManager:
             return CMap()
 
     def get_font(self, objid, spec):
-        if objid and objid in self._cached_fonts:
-            font = self._cached_fonts[objid]
-        else:
+        font = None
+        if objid:
+            font = self._cached_fonts.get(objid, None)
+        if font is None:
             log.info('get_font: create: objid=%r, spec=%r', objid, spec)
             if settings.STRICT:
                 if spec['Type'] is not LITERAL_FONT:
