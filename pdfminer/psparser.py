@@ -4,7 +4,8 @@
 
 import re
 import logging
-
+from collections import deque
+from string import digits, ascii_letters
 
 from . import settings
 from .utils import choplist
@@ -170,7 +171,54 @@ class PSBaseParser:
     def __init__(self, fp):
         self.fp = fp
         self.seek(0)
+
+        action_map = {
+            b'.': self.dot_action,
+            b'(': self.open_paren_action,
+            b'%': self.percent_action,
+            b'/': self.slash_action,
+            b'<': self.lt_action,
+            b'>': self.gt_action,
+        }
+        for digit in digits + "+-":
+            action_map[digit.encode()] = self.digit_action
+        for letter in ascii_letters:
+            action_map[letter.encode()] = self.alpha_action
+        self.action_map = action_map
         return
+
+    def percent_action(self, _c):
+        self._curtoken = b'%'
+        self._parse1 = self._parse_comment
+
+    def slash_action(self, _c):
+        self._curtoken = b''
+        self._parse1 = self._parse_literal
+
+    def dot_action(self, c):
+        self._curtoken = c
+        self._parse1 = self._parse_float
+
+    def open_paren_action(self, _c):
+        self._curtoken = b''
+        self.paren = 1
+        self._parse1 = self._parse_string
+
+    def lt_action(self, _c):
+        self._curtoken = b''
+        self._parse1 = self._parse_wopen
+
+    def gt_action(self, _c):
+        self._curtoken = b''
+        self._parse1 = self._parse_wclose
+
+    def digit_action(self, c):
+        self._curtoken = c
+        self._parse1 = self._parse_number
+
+    def alpha_action(self, c):
+        self._curtoken = c
+        self._parse1 = self._parse_keyword
 
     def __repr__(self):
         return '<%s: %r, bufpos=%d>' % (self.__class__.__name__, self.fp,
@@ -208,7 +256,7 @@ class PSBaseParser:
         self._parse1 = self._parse_main
         self._curtoken = b''
         self._curtokenpos = 0
-        self._tokens = []
+        self._tokens = deque()
         return
 
     def fillbuf(self):
@@ -284,42 +332,15 @@ class PSBaseParser:
         j = m.start(0)
         c = s[j:j+1]
         self._curtokenpos = self.bufpos+j
-        if c == b'%':
-            self._curtoken = b'%'
-            self._parse1 = self._parse_comment
-            return j+1
-        elif c == b'/':
-            self._curtoken = b''
-            self._parse1 = self._parse_literal
-            return j+1
-        elif c in b'-+' or c.isdigit():
-            self._curtoken = c
-            self._parse1 = self._parse_number
-            return j+1
-        elif c == b'.':
-            self._curtoken = c
-            self._parse1 = self._parse_float
-            return j+1
-        elif c.isalpha():
-            self._curtoken = c
-            self._parse1 = self._parse_keyword
-            return j+1
-        elif c == b'(':
-            self._curtoken = b''
-            self.paren = 1
-            self._parse1 = self._parse_string
-            return j+1
-        elif c == b'<':
-            self._curtoken = b''
-            self._parse1 = self._parse_wopen
-            return j+1
-        elif c == b'>':
-            self._curtoken = b''
-            self._parse1 = self._parse_wclose
-            return j+1
-        else:
+
+        action = self.action_map.get(c)
+        if action is None:
             self._add_token(KWD(c))
-            return j+1
+        else:
+            action(c)
+
+        return j + 1
+
 
     def _add_token(self, obj):
         self._tokens.append((self._curtokenpos, obj))
@@ -492,7 +513,7 @@ class PSBaseParser:
         while not self._tokens:
             self.fillbuf()
             self.charpos = self._parse1(self.buf, self.charpos)
-        token = self._tokens.pop(0)
+        token = self._tokens.popleft()
         log.debug('nexttoken: %r', token)
         return token
 
