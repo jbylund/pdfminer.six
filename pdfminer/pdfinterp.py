@@ -166,10 +166,31 @@ class PDFResourceManager:
                 raise
             return CMap()
 
+    def _get_cache_key(self, spec):
+
+        descriptor = dict_value(spec.get('FontDescriptor', {}))
+        descriptor_as_kvlist = []
+        for k, v in sorted(descriptor.items()):
+            if isinstance(v, list):
+                v = tuple(v)
+            elif isinstance(v, dict):
+                v = tuple(sorted(v.items()))
+            descriptor_as_kvlist.append((k, v))
+
+        cache_key = (
+            spec["Type"],
+            spec.get("Subtype"),
+            spec.get("FirstChar", 0),
+            tuple(list_value(spec.get("widths"))),
+            tuple(descriptor_as_kvlist)
+        )
+
+        hash(cache_key)
+        return cache_key
+
     def get_font(self, objid, spec):
-        font = None
-        if objid:
-            font = self._cached_fonts.get(objid, None)
+        cache_key = self._get_cache_key(spec)
+        font = self._cached_fonts.get(cache_key, None)
         if font is None:
             log.info('get_font: create: objid=%r, spec=%r', objid, spec)
             if settings.STRICT:
@@ -207,8 +228,8 @@ class PDFResourceManager:
                 if settings.STRICT:
                     raise PDFFontError('Invalid Font spec: %r' % spec)
                 font = PDFType1Font(self, spec)  # this is so wrong!
-            if objid and self.caching:
-                self._cached_fonts[objid] = font
+            if self.caching:
+                self._cached_fonts[cache_key] = font
         return font
 
 
